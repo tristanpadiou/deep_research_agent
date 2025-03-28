@@ -67,7 +67,7 @@ async def editor_agent(ctx: RunContext[Deps], query:str):
     ctx.deps.edited_deep_search_result=res
     return res
 
-class search_agent:
+class Main_agent:
     def __init__(self):
         self.agent=agent
         self.deps=Deps(deep_search_result="", quick_search_result="",edited_deep_search_result="")
