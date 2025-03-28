@@ -29,18 +29,17 @@ class State:
 
 
 search_agent=Agent(llm, tools=[tavily_search_tool(tavily_key)], system_prompt="do a websearch based on the query")
-paper_gen_agent=Agent(llm, system_prompt="syntheze the information based on the query, preliminary_search, and search_results and provide an analysis of the information, include url sources")
+paper_gen_agent=Agent(llm, system_prompt="syntheze the information based on the query, ether write a paper or a report, add all the necessary informations, preliminary_search, and search_results and provide a detailed analysis of the information, include url sources")
 
 
-@dataclass
+
 class PaperGen_node(BaseNode[State]):
     async def run(self, ctx: GraphRunContext[State])->End:
-        prompt=(f'Based on this query:{ctx.state.query}, and this preliminary_search:{ctx.state.preliminary_research}, and the search_results:{ctx.state.research_results}, synthesize the information.')
+        prompt=(f'Based on this query:{ctx.state.query}, and this preliminary_search:{ctx.state.preliminary_research}, and the search_results:{ctx.state.research_results}, synthesize the information write a paper or a report.')
         result=await paper_gen_agent.run(prompt)
         ctx.state.final=result.data
         return End(result.data)
 
-@dataclass
 class Research_node(BaseNode[State]):
     async def run(self, ctx: GraphRunContext[State])->PaperGen_node:
         data=[]
@@ -62,7 +61,7 @@ class Tasks:
 class Research_plan:
     Plan: List[Tasks]
 research_plan_agent=Agent(llm, result_type=Research_plan, system_prompt='generate a research plan based on the query and the preliminary search')
-@dataclass
+
 class Research_plan_node(BaseNode[State]):
     async def run(self, ctx: GraphRunContext[State])->Research_node:
         
@@ -71,7 +70,6 @@ class Research_plan_node(BaseNode[State]):
         ctx.state.research_plan=result.data.Plan
         return Research_node()
 
-@dataclass
 class preliminary_search_node(BaseNode[State]):
     async def run(self, ctx: GraphRunContext[State]) -> Research_plan_node:
         prompt = (' Do a preliminary search to get a global idea of the subject that the user wants to do reseach on as well as the necessary informations to do a search on.\n'
@@ -83,7 +81,7 @@ class preliminary_search_node(BaseNode[State]):
 class Deep_research_engine:
     def __init__(self):
         self.graph=Graph(nodes=[preliminary_search_node, Research_plan_node, Research_node, PaperGen_node])
-       
+        self.state=State(query='', preliminary_research='', research_plan=[], research_results=[], validation='', final='')
 
     async def chat(self,query:str):
         """Chat with the deep research engine,
@@ -92,7 +90,8 @@ class Deep_research_engine:
         Returns:
             str: The response from the deep research engine
         """
-        response=await self.graph.run(preliminary_search_node(),state=State(query={query}, preliminary_research='', research_plan=[], research_results=[], validation='', final=''))
+        self.state.query=query
+        response=await self.graph.run(preliminary_search_node(),state=self.state)
         return response.output
 
 
