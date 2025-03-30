@@ -18,36 +18,38 @@ llm=GeminiModel('gemini-2.0-flash', provider=GoogleGLAProvider(api_key=google_ap
 
 @dataclass
 class State:
+    instruction: str
+    presentation_style: str
     research: str
     presentation_plan: List[Dict]
     presentation: Dict
-    markdown_presentation: Dict
+    html_presentation: str
 
 
 @dataclass  
-class markdown_schema:
-    markdown: str
+class html_schema:
+    html: str
 
-markdown_agent=Agent(llm, result_type=markdown_schema, system_prompt='generate a markdown presentation based on the presentation')
+html_agent=Agent(llm, result_type=html_schema, system_prompt='generate a html presentation based on the presentation')
 
-class markdown_presentation(BaseNode[State]):
+class html_presentation(BaseNode[State]):
     async def run(self, ctx: GraphRunContext[State])-> End:
         for key in ctx.state.presentation.keys():
             time.sleep(2)
             page=ctx.state.presentation[key]
-            result=await markdown_agent.run(f'generate a markdown presentation based on the page schema, include line breaks so it can be displayed in a presentation: {page}')
-            ctx.state.markdown_presentation[key]=result.data.markdown
+            result=await html_agent.run(f'generate a html presentation based on the page schema and user defined style {ctx.state.presentation_style}, include line breaks so it can be displayed in a presentation: {page}')
+            ctx.state.html_presentation[key]=result.data.html
 
-        return End(ctx.state.markdown_presentation)
+        return End(ctx.state.html_presentation)
 
 
 class clean_up_node(BaseNode[State]):
-    async def run(self, ctx: GraphRunContext[State])-> markdown_presentation:
+    async def run(self, ctx: GraphRunContext[State])-> html_presentation:
         page_number=1
         for task in ctx.state.presentation_plan.tasks:
             ctx.state.presentation[f'page_{page_number}']={'title':task.text_data.Text_title, 'text':task.text_data.Text_content,'image_title':task.image_data.image_title,'image':task.image_data.image_url}
             page_number+=1
-        return markdown_presentation()
+        return html_presentation()
 
 
 text_extraction_agent=Agent(llm, system_prompt='extract the text from the reaserch based on the instructions')
@@ -114,11 +116,11 @@ class Presentation_plan:
     tasks: List[steps] = Field(description='the steps to complete')
 
 
-presentation_plan_agent=Agent(llm, result_type=Presentation_plan, system_prompt='generate a presentation plan based on the research, choose wether to use images or not for each step')
+presentation_plan_agent=Agent(llm, result_type=Presentation_plan, system_prompt='generate a presentation plan based on the research and instruction (if any), choose wether to use images or not for each step')
         
 class Presentation_plan_node(BaseNode[State]):
     async def run(self, ctx: GraphRunContext[State])->step_execution_node:
-        prompt=f'generate a presentation plan based on the research: {ctx.state.research}, choose wether to use images or not for each step, make sure that the sources URLsare included in the presentation'
+        prompt=f'generate a presentation plan based on the research: {ctx.state.research} and instruction: {ctx.state.instruction} (if any), choose wether to use images or not for each step, make sure that the sources URLsare included in the presentation'
         result=await presentation_plan_agent.run(prompt)
         ctx.state.presentation_plan=result.data
         return step_execution_node()
@@ -126,10 +128,10 @@ class Presentation_plan_node(BaseNode[State]):
 
 class Presentation_gen:
     def __init__(self):
-        self.graph=Graph(nodes=[Presentation_plan_node, step_execution_node, clean_up_node, markdown_presentation])
-        self.state=State(research='', presentation_plan=[], presentation={}, markdown_presentation={})
+        self.graph=Graph(nodes=[Presentation_plan_node, step_execution_node, clean_up_node, html_presentation])
+        self.state=State(research='', presentation_plan=[], presentation={}, html_presentation={}, presentation_style='', instruction='')
 
-    async def chat(self,research:str):
+    async def chat(self,research:str, presentation_style:str, instruction:str):
         """Chat with the presentation generator,
         Args:
             research (str): The research to generate a presentation for
@@ -137,6 +139,8 @@ class Presentation_gen:
             str: The response from the presentation generator
         """
         self.state.research=research
+        self.state.presentation_style=presentation_style
+        self.state.instruction=instruction
         response=await self.graph.run(Presentation_plan_node(),state=self.state)
         return response.output
 
