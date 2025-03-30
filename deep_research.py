@@ -35,7 +35,7 @@ paper_gen_agent=Agent(llm, system_prompt="syntheze the information based on the 
 
 class PaperGen_node(BaseNode[State]):
     async def run(self, ctx: GraphRunContext[State])->End:
-        prompt=(f'Based on this query:{ctx.state.query}, and this preliminary_search:{ctx.state.preliminary_research}, and the search_results:{ctx.state.research_results}, synthesize the information write a paper or a report.')
+        prompt=(f'Based on this query:{ctx.state.query}, and this preliminary_search:{ctx.state.preliminary_research}, and the search_results:{ctx.state.research_results}, synthesize the information write a paper or a report, include the url sources.')
         result=await paper_gen_agent.run(prompt)
         ctx.state.final=result.data
         return End(result.data)
