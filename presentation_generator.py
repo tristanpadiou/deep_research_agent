@@ -23,31 +23,31 @@ class State:
     research: str
     presentation_plan: List[Dict]
     presentation: Dict
-    html_presentation: str
+    markdown_presentation: Dict
 
 
 @dataclass  
-class html_schema:
-    html: str
+class markdown_schema:
+    markdown: str = Field(description='the markdown code')
 
-html_agent=Agent(llm, result_type=html_schema, system_prompt='generate a html presentation based on the presentation')
+markdown_agent=Agent(llm, result_type=markdown_schema, system_prompt='generate a markdown presentation based on the presentation')
 
 class html_presentation(BaseNode[State]):
     async def run(self, ctx: GraphRunContext[State])-> End:
         for key in ctx.state.presentation.keys():
             time.sleep(2)
             page=ctx.state.presentation[key]
-            result=await html_agent.run(f'generate a html presentation based on the page schema and user defined style {ctx.state.presentation_style}, include line breaks so it can be displayed in a presentation: {page}')
-            ctx.state.html_presentation[key]=result.data.html
+            result=await markdown_agent.run(f'generate a markdown presentation based on the page schema:{page} and user defined style {ctx.state.presentation_style}')
+            ctx.state.markdown_presentation[key]=result.data.markdown
 
-        return End(ctx.state.html_presentation)
+        return End(ctx.state.markdown_presentation)
 
 
 class clean_up_node(BaseNode[State]):
     async def run(self, ctx: GraphRunContext[State])-> html_presentation:
         page_number=1
         for task in ctx.state.presentation_plan.tasks:
-            ctx.state.presentation[f'page_{page_number}']={'title':task.text_data.Text_title, 'text':task.text_data.Text_content,'image_title':task.image_data.image_title,'image':task.image_data.image_url}
+            ctx.state.presentation[f'page_{page_number}']={'title':task.text_data.Text_title, 'text':task.text_data.Text_content,'image_title':task.image_data.image_title if task.image_data else None,'image':task.image_data.image_url if task.image_data else None}
             page_number+=1
         return html_presentation()
 
@@ -95,9 +95,9 @@ class step_execution_node(BaseNode[State]):
 
 @dataclass
 class image:
-    image_title: str = Field(description='the image title')
-    image_position: int = Field(description='the image position in the presentation')
-    image_url: str = None
+    image_title: Optional[str] = Field(description='the image title')
+    image_position: Optional[int] = Field(description='the image position in the presentation')
+    image_url: Optional[str] = None
 
 @dataclass
 class text:
@@ -108,7 +108,7 @@ class text:
 
 @dataclass
 class steps:
-    image_data: Optional[image] = Field(description='the image data, or empty if no image is needed')
+    image_data: Optional[image] = Field(description='the image data, optional')
     text_data: text = Field(description='the text data')
 
 @dataclass
@@ -129,12 +129,14 @@ class Presentation_plan_node(BaseNode[State]):
 class Presentation_gen:
     def __init__(self):
         self.graph=Graph(nodes=[Presentation_plan_node, step_execution_node, clean_up_node, html_presentation])
-        self.state=State(research='', presentation_plan=[], presentation={}, html_presentation={}, presentation_style='', instruction='')
+        self.state=State(research='', presentation_plan=[], presentation={}, markdown_presentation={}, presentation_style='', instruction='')
 
     async def chat(self,research:str, presentation_style:str, instruction:str):
         """Chat with the presentation generator,
         Args:
             research (str): The research to generate a presentation for
+            presentation_style (str): The style of the presentation
+            instruction (str): The instruction for the presentation
         Returns:
             str: The response from the presentation generator
         """

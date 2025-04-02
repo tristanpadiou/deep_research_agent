@@ -28,17 +28,18 @@ class State:
     final: str
 
 
-search_agent=Agent(llm, tools=[tavily_search_tool(tavily_key)], system_prompt="do a websearch based on the query")
-paper_gen_agent=Agent(llm, system_prompt="syntheze the information based on the query, ether write a paper or a report, add all the necessary informations, preliminary_search, and search_results and provide a detailed analysis of the information, include url sources")
 
-
+@dataclass
+class MD_Paper:
+    paper: str = Field(description='the paper in markdown format')
+paper_gen_agent=Agent(llm, result_type=MD_Paper, system_prompt="syntheze the information based on the query, ether write a paper or a report, add all the necessary informations, preliminary_search, and search_results and provide a detailed analysis of the information, add line breaks so that the sentences dont appear too long, only include url sources at the bottom of the page, it has to be in markdown format")
 
 class PaperGen_node(BaseNode[State]):
     async def run(self, ctx: GraphRunContext[State])->End:
-        prompt=(f'Based on this query:{ctx.state.query}, and this preliminary_search:{ctx.state.preliminary_research}, and the search_results:{ctx.state.research_results}, synthesize the information write a paper or a report, include the url sources.')
+        prompt=(f'query:{ctx.state.query}, preliminary_search:{ctx.state.preliminary_research},search_results:{ctx.state.research_results}')
         result=await paper_gen_agent.run(prompt)
-        ctx.state.final=result.data
-        return End(result.data)
+        ctx.state.final=result.data.paper
+        return End(ctx.state.final)
 
 class Research_node(BaseNode[State]):
     async def run(self, ctx: GraphRunContext[State])->PaperGen_node:
@@ -69,6 +70,9 @@ class Research_plan_node(BaseNode[State]):
         result=await research_plan_agent.run(prompt)
         ctx.state.research_plan=result.data.Plan
         return Research_node()
+    
+    
+search_agent=Agent(llm, tools=[tavily_search_tool(tavily_key)], system_prompt="do a websearch based on the query")
 
 class preliminary_search_node(BaseNode[State]):
     async def run(self, ctx: GraphRunContext[State]) -> Research_plan_node:
