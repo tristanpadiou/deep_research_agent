@@ -90,7 +90,7 @@ class step_execution_node(BaseNode[State]):
             if task.text_data:
                 result=await text_extraction_agent.run(f'extract the text from the research: {ctx.state.research} based on the instructions: {task.text_data.Text_to_extract}')
                 task.text_data.Text_content=result.data
-        
+    
         return clean_up_node()
 
 @dataclass
@@ -108,8 +108,9 @@ class text:
 
 @dataclass
 class steps:
-    image_data: Optional[image] = Field(description='the image data, optional')
+    image_data: Optional[image] = Field(default_factory=None,description='the image data, optional')
     text_data: text = Field(description='the text data')
+ 
 
 @dataclass
 class Presentation_plan:
