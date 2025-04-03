@@ -10,10 +10,17 @@ from pydantic_ai.providers.google_gla import GoogleGLAProvider
 from dataclasses import dataclass
 from presentation_generator import Presentation_gen
 from typing import Optional
+from spire.doc import Document,FileFormat
+from spire.doc.common import *
+import requests
+from PIL import Image
+from io import BytesIO
+import tempfile
 
 load_dotenv()
 tavily_key=os.getenv('tavily_key')
 google_api_key=os.getenv('google_api_key')
+pse=os.getenv('pse')
 
 llm=GeminiModel('gemini-2.0-flash', provider=GoogleGLAProvider(api_key=google_api_key))
 
@@ -22,14 +29,12 @@ presentation=Presentation_gen()
 
 @dataclass
 class Deps:
-    deep_search_results:list[str]
+    deep_search_results:list[dict]
     quick_search_results:list[str]
-    edited_deep_search_result:str
-    presentation_slides:dict
+    # presentation_slides:dict
 
-agent=Agent(llm, system_prompt="you are a research assistant, you are given a query, leverage what tool(s) to use, always show the output of the tools, except for the presentation agent")
 
-@agent.tool
+
 async def deep_research_agent(ctx:RunContext[Deps], query:str):
     """
     This function is used to do a deep research on the web for information on a complex query, generates a report or a paper.
@@ -40,10 +45,9 @@ async def deep_research_agent(ctx:RunContext[Deps], query:str):
     """
     res=await deepsearch.chat(query)
     ctx.deps.deep_search_results.append(res)
-    return res
+    return str(res)
 
 quick_search_agent=Agent(llm,tools=[tavily_search_tool(tavily_key)])
-@agent.tool
 async def quick_research_agent(ctx: RunContext[Deps], query:str):
     """
     This function is used to do a quick search on the web for information on a given query.
@@ -54,83 +58,109 @@ async def quick_research_agent(ctx: RunContext[Deps], query:str):
     """
     res=await quick_search_agent.run(query)
     ctx.deps.quick_search_results.append(res.data)
-    return res.data
-    
-editor_agent=Agent(llm, system_prompt="you are an editor, you are given a query, a deep search result, and maybe a quick search result (optional), you need to edit the deep search result to make it more accurate following the query's instructions")
+    return str(res.data)
 
-@agent.tool
+
+def google_image_search(query:str):
+  """Search for images using Google Custom Search API
+  args: query
+  return: image url
+  """
+  # Define the API endpoint for Google Custom Search
+  url = "https://www.googleapis.com/customsearch/v1"
+
+  params = {
+      "q": query,
+      "cx": pse,
+      "key": google_api_key,
+      "searchType": "image",  # Search for images
+      "num": 1  # Number of results to fetch
+  }
+
+  # Make the request to the Google Custom Search API
+  response = requests.get(url, params=params)
+  data = response.json()
+
+  # Check if the response contains image results
+  if 'items' in data:
+      # Extract the first image result
+      image_url = data['items'][0]['link']
+      return image_url
+  
+
+
 async def research_editor_tool(ctx: RunContext[Deps], query:str):
     """
-    This function is used to edit the deep search result to make it more accurate following the query's instructions.
+    Use this tool to edit the deep search result to make it more accurate following the query's instructions.
+    This tool can modify paragraphs, image_url or table. For image_url, you need to give the query to search for the image.
     Args:
         query (str): The query containing instructions for editing the deep search result
     Returns:
         str: The edited and improved deep search result
     """
-    res=await editor_agent.run(f'query:{query}, deep_search_result:{ctx.deps.deep_search_results}, quick_search_result:{ctx.deps.quick_search_results}')
-    ctx.deps.edited_deep_search_result=res
-    return res
+    @dataclass
+    class edit_route:
+        page_number:int = Field(description='the page number to edit')
+        paragraph_number:Optional[int] = Field(default_factory=None, description='the number of the paragraph to edit, if the paragraph is not needed to be edited, return None')
+        route: str = Field(description='the route to the content to edit, either paragraphs, image_url, edit_table or add_table')
 
-@agent.tool
-async def presentation_agent(
-    ctx: RunContext[Deps],
-    style: Optional[str] = "professional",
-    instruction: Optional[str] = 'None'
-) -> dict:
-    """
-    Generate a presentation based on the deep search result.
-
-    Args:
-        style: Presentation style (default: "professional")
-        instruction: Additional instructions for presentation generation (default: None)
-
-    Returns:
-        dict: The presentation slides
-    """
-    search_content = (ctx.deps.edited_deep_search_result 
-                     if ctx.deps.edited_deep_search_result 
-                     else ctx.deps.deep_search_results[0])
+    paper_dict={}
+    for i in range(len(ctx.deps.deep_search_results)):
+        paper_dict[f'page_{i+1}']={'title':ctx.deps.deep_search_results[i].get('title'),
+                                   'image_url':ctx.deps.deep_search_results[i].get('image_url') if ctx.deps.deep_search_results[i].get('image_url') else 'None',
+                                   'paragraphs_title':{num:paragraph.get('title') for num,paragraph in enumerate(ctx.deps.deep_search_results[i].get('paragraphs'))}, 
+                                   'table':ctx.deps.deep_search_results[i].get('table') if ctx.deps.deep_search_results[i].get('table') else 'None',
+                                   'references':ctx.deps.deep_search_results[i].get('references')}
     
-    res = await presentation.chat(search_content, style=style, instruction=instruction)
-    ctx.deps.presentation_slides = res
-    return res
+    route_agent=Agent(llm,result_type=edit_route, system_prompt="you decide the route to the content to edit based on the query's instructions and the paper_dict, either paragraphs, image_url or table")
+    route=await route_agent.run(f'query:{query}, paper_dict:{paper_dict}')
+    contents=ctx.deps.deep_search_results[route.data.page_number-1]
+ 
+    
+    @dataclass
+    class Research_edits:
+        edits:str = Field(description='the edits')
+    editor_agent=Agent(llm,tools=[google_image_search],result_type=Research_edits, system_prompt="you are an editor, you are given a query, some content to edit, and maybe a quick search result (optional), you need to edit the deep search result to make it more accurate following the query's instructions, return only the edited content, no comments")
+    if route.data.route=='paragraphs':
+        content=contents.get('paragraphs')[route.data.paragraph_number]['content']
+        res=await editor_agent.run(f'query:{query}, content:{content}, quick_search_results:{ctx.deps.quick_search_results if ctx.deps.quick_search_results else "None"}')
+        ctx.deps.deep_search_results[route.data.page_number-1]['paragraphs'][route.data.paragraph_number]['content']=res.data.edits
+    if route.data.route=='image_url':
+        content=contents.get('image_url')
+        res=await editor_agent.run(f'query:{query}, content:{content}, quick_search_results:{ctx.deps.quick_search_results if ctx.deps.quick_search_results else "None"}')
+        ctx.deps.deep_search_results[route.data.page_number-1]['image_url']=res.data.edits
+    if route.data.route=='edit_table':
+        content=contents.get('table')
+        res=await editor_agent.run(f'query:{query}, content:{content}, quick_search_results:{ctx.deps.quick_search_results if ctx.deps.quick_search_results else "None"}')
+        ctx.deps.deep_search_results[route.data.page_number-1]['table']=res.data.edits
+    if route.data.route=='add_table':
+ 
+        res=await editor_agent.run(f'query:{query}, quick_search_results:{ctx.deps.quick_search_results if ctx.deps.quick_search_results else "None"}, research_results:{ctx.deps.deep_search_results[route.data.page_number-1]}')
+        ctx.deps.deep_search_results[route.data.page_number-1]['table']=res.data.edits
+    
+    return str(ctx.deps.deep_search_results)
+
 
 @dataclass
-class page_edit:
-    edits: str = Field(description='the edits to make to the page in html format')
-
-page_editor=Agent(llm, result_type=page_edit, system_prompt='you are a page editor, edit the mentionned page(s) based on the instructions.')
-
-@agent.tool
-async def page_editor_tool(ctx: RunContext[Deps], page_number: int, instructions: str):
-    """
-    This function is used to edit the mentionned page(s) based on the instructions.
-    Args:
-        page_number (int): The number of the page to edit
-        instructions (str): The instructions for the page edits
-    Returns:
-        str: The edited page
-    """
-    result=await page_editor.run(f'page:{ctx.deps.presentation_slides[f"page_{page_number}"]}, instructions:{instructions}')
-    ctx.deps.presentation_slides[f"page_{page_number}"]=result.data.edits
-    return result.data.edits
-
-deps=Deps( deep_search_results=[], quick_search_results=[],edited_deep_search_result="", presentation_slides={})
-
-
-@dataclass
-class message_state:
+class Message_state:
     messages: list[ModelMessage]
 
-memory=message_state(messages=[])
+
 
 class Main_agent:
     def __init__(self):
-        self.agent=agent
-        self.deps=deps
-        self.memory=memory
+        self.agent=Agent(llm, system_prompt="you are a research assistant, you are given a query, leverage what tool(s) to use but do not use the presentation agent unless the user asks for it,\
+                          always show the output of the tools, except for the presentation agent",
+                          tools=[deep_research_agent,research_editor_tool,quick_research_agent])
+        self.deps=Deps( deep_search_results=[], quick_search_results=[])
+        self.memory=Message_state(messages=[])
 
     async def chat(self, query:str):
         result = await self.agent.run(query,deps=self.deps, message_history=self.memory.messages)
         self.memory.messages=result.all_messages()
         return result.data
+    
+    def reset(self):
+        self.memory.messages=[]
+        self.deps=Deps( deep_search_results=[], quick_search_results=[])
+
