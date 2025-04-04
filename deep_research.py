@@ -37,7 +37,7 @@ class paragraph(BaseModel):
 
 
 class Paper_layout(BaseModel):
-    title: str = Field(description='the title of the paper in markdown format')
+    title: str = Field(description='the title of the paper')
     image_url: Optional[str] = Field(default_factory=None,description='the image url if needed else return None')
     paragraphs: List[paragraph]= Field(description='the list of paragraphs of the paper')
     table: Optional[str] = Field(default_factory=None,description='the table if needed else return None')
