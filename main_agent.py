@@ -3,20 +3,14 @@ from pydantic_ai.common_tools.tavily import tavily_search_tool
 from pydantic_ai.messages import ModelMessage
 from dotenv import load_dotenv
 import os
-from pydantic import Field
+from pydantic import Field, BaseModel
 from deep_research import Deep_research_engine
 from pydantic_ai.models.gemini import GeminiModel
 from pydantic_ai.providers.google_gla import GoogleGLAProvider
 from dataclasses import dataclass
 from presentation_generator import Presentation_gen
-from typing import Optional
-from spire.doc import Document,FileFormat
-from spire.doc.common import *
+from typing import Optional, List
 import requests
-from PIL import Image
-from io import BytesIO
-import tempfile
-
 load_dotenv()
 tavily_key=os.getenv('tavily_key')
 google_api_key=os.getenv('google_api_key')
@@ -29,7 +23,7 @@ presentation=Presentation_gen()
 
 @dataclass
 class Deps:
-    deep_search_results:list[dict]
+    deep_search_results:dict
     quick_search_results:list[str]
     # presentation_slides:dict
 
@@ -44,7 +38,7 @@ async def deep_research_agent(ctx:RunContext[Deps], query:str):
         str: The result of the search
     """
     res=await deepsearch.chat(query)
-    ctx.deps.deep_search_results.append(res)
+    ctx.deps.deep_search_results=res
     return str(res)
 
 quick_search_agent=Agent(llm,tools=[tavily_search_tool(tavily_key)])
@@ -100,23 +94,26 @@ async def research_editor_tool(ctx: RunContext[Deps], query:str):
     """
     @dataclass
     class edit_route:
-        page_number:int = Field(description='the page number to edit')
         paragraph_number:Optional[int] = Field(default_factory=None, description='the number of the paragraph to edit, if the paragraph is not needed to be edited, return None')
         route: str = Field(description='the route to the content to edit, either paragraphs, image_url, edit_table or add_table')
 
-    paper_dict={}
-    for i in range(len(ctx.deps.deep_search_results)):
-        paper_dict[f'page_{i+1}']={'title':ctx.deps.deep_search_results[i].get('title'),
-                                   'image_url':ctx.deps.deep_search_results[i].get('image_url') if ctx.deps.deep_search_results[i].get('image_url') else 'None',
-                                   'paragraphs_title':{num:paragraph.get('title') for num,paragraph in enumerate(ctx.deps.deep_search_results[i].get('paragraphs'))}, 
-                                   'table':ctx.deps.deep_search_results[i].get('table') if ctx.deps.deep_search_results[i].get('table') else 'None',
-                                   'references':ctx.deps.deep_search_results[i].get('references')}
+ 
+   
+    paper_dict={'title':ctx.deps.deep_search_results.get('title'),
+                                'image_url':ctx.deps.deep_search_results.get('image_url') if ctx.deps.deep_search_results.get('image_url') else 'None',
+                                'paragraphs_title':{num:paragraph.get('title') for num,paragraph in enumerate(ctx.deps.deep_search_results.get('paragraphs'))}, 
+                                'table':ctx.deps.deep_search_results.get('table') if ctx.deps.deep_search_results.get('table') else 'None',
+                                'references':ctx.deps.deep_search_results.get('references')}
     
     route_agent=Agent(llm,result_type=edit_route, system_prompt="you decide the route to the content to edit based on the query's instructions and the paper_dict, either paragraphs, image_url or table")
     route=await route_agent.run(f'query:{query}, paper_dict:{paper_dict}')
-    contents=ctx.deps.deep_search_results[route.data.page_number-1]
+    contents=ctx.deps.deep_search_results
  
-    
+    class Table_row(BaseModel):
+        data: List[str] = Field(description='the data of the row')
+    class Table(BaseModel): 
+        rows: List[Table_row] = Field(description='the rows of the table')
+        columns: List[str] = Field(description='the columns of the table')
     @dataclass
     class Research_edits:
         edits:str = Field(description='the edits')
@@ -124,22 +121,22 @@ async def research_editor_tool(ctx: RunContext[Deps], query:str):
     if route.data.route=='paragraphs':
         content=contents.get('paragraphs')[route.data.paragraph_number]['content']
         res=await editor_agent.run(f'query:{query}, content:{content}, quick_search_results:{ctx.deps.quick_search_results if ctx.deps.quick_search_results else "None"}')
-        ctx.deps.deep_search_results[route.data.page_number-1]['paragraphs'][route.data.paragraph_number]['content']=res.data.edits
+        ctx.deps.deep_search_results['paragraphs'][route.data.paragraph_number]['content']=res.data.edits
     if route.data.route=='image_url':
         content=contents.get('image_url')
         res=await editor_agent.run(f'query:{query}, content:{content}, quick_search_results:{ctx.deps.quick_search_results if ctx.deps.quick_search_results else "None"}')
-        ctx.deps.deep_search_results[route.data.page_number-1]['image_url']=res.data.edits
+        ctx.deps.deep_search_results['image_url']=res.data.edits
     if route.data.route=='edit_table':
         content=contents.get('table')
-        res=await editor_agent.run(f'query:{query}, content:{content}, quick_search_results:{ctx.deps.quick_search_results if ctx.deps.quick_search_results else "None"}')
-        ctx.deps.deep_search_results[route.data.page_number-1]['table']=res.data.edits
+        table_editor_agent=Agent(llm, result_type=Table, system_prompt="edit the table content based on the query's instructions, the research and the quick search results")
+        table=await table_editor_agent.run(f'query:{query}, table:{content}, research:{ctx.deps.deep_search_results}, quick_search_results:{ctx.deps.quick_search_results if ctx.deps.quick_search_results else "None"}')
+        ctx.deps.deep_search_results['table']={'data':[row.data for row in table.data.rows], 'columns':table.data.columns}
     if route.data.route=='add_table':
- 
-        res=await editor_agent.run(f'query:{query}, quick_search_results:{ctx.deps.quick_search_results if ctx.deps.quick_search_results else "None"}, research_results:{ctx.deps.deep_search_results[route.data.page_number-1]}')
-        ctx.deps.deep_search_results[route.data.page_number-1]['table']=res.data.edits
+        table_agent=Agent(llm, result_type=Table, system_prompt="generate a detailed table in a dictionary format based on the research and the query")
+        table=await table_agent.run(f'query:{query}, research:{ctx.deps.deep_search_results}, quick_search_results:{ctx.deps.quick_search_results if ctx.deps.quick_search_results else "None"}')
+        ctx.deps.deep_search_results['table']={'data':[row.data for row in table.data.rows], 'columns':table.data.columns}
     
     return str(ctx.deps.deep_search_results)
-
 
 @dataclass
 class Message_state:

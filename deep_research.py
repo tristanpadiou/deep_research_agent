@@ -3,7 +3,7 @@ from pydantic_ai import Agent
 from pydantic_ai.common_tools.tavily import tavily_search_tool
 from dataclasses import dataclass
 from pydantic import Field, BaseModel
-from typing import  List, Dict, Optional
+from typing import  List, Dict, Optional, Any
 from pydantic_ai.models.gemini import GeminiModel
 from pydantic_ai.providers.google_gla import GoogleGLAProvider
 from dotenv import load_dotenv
@@ -12,7 +12,7 @@ from tavily import TavilyClient
 from IPython.display import Image, display
 import requests
 import time
-
+import pandas as pd
 
 load_dotenv()
 google_api_key=os.getenv('google_api_key')
@@ -38,10 +38,10 @@ class paragraph(BaseModel):
 
 class Paper_layout(BaseModel):
     title: str = Field(description='the title of the paper')
-    image_url: Optional[str] = Field(default_factory=None,description='the image url if needed else return None')
+    image_url: Optional[str] = None
     paragraphs: List[paragraph]= Field(description='the list of paragraphs of the paper')
-    table: Optional[str] = Field(default_factory=None,description='the table if needed else return None')
-    references: str = Field(default_factory=None,description='the references (urls) of the paper from the research_results')
+    table: Optional[dict] = None
+    references: str = None
 
 paper_layout_agent=Agent(llm, result_type=Paper_layout, system_prompt="generate a paper layout based on the query, preliminary_search, search_results, for the paragraphs only include the title, no content, no image, no table, start with introduction and end with conclusion")
 paragraph_gen_agent=Agent(llm, result_type=paragraph, system_prompt="generate a paragraph synthesizing the research_results based on the title")
@@ -91,22 +91,23 @@ def google_image_search(query:str):
       image_url = data['items'][0]['link']
       return image_url
 
+class Table_row(BaseModel):
+    data: List[str] = Field(description='the data of the row')
 class Table(BaseModel):
-    table: str = Field(description='the table in markdown format')
+    rows: List[Table_row] = Field(description='the rows of the table')
+    columns: List[str] = Field(description='the columns of the table')
 
 class Research_results(BaseModel):
     research_results: List[str] = Field(default_factory=None,description='the research results')
     image_url: str = Field(default_factory=None,description='the image url if needed else return None')
-    table: str = Field(default_factory=None,description='the table in markdown code if needed else return None')
+    table: dict = Field(default_factory=None,description='the table dataframe in a dictionary format')
     references: str = Field(default_factory=None,description='the references (urls) of the research_results')
 
-table_agent=Agent(llm, result_type=Table, system_prompt="generate a detailed table in markdown format based on the research and the query")
-
-
+table_agent=Agent(llm, result_type=Table, system_prompt="generate a detailed table in dictionary format based on the research and the query")
 
 class Research_node(BaseNode[State]):
     async def run(self, ctx: GraphRunContext[State])->PaperGen_node:
-        research_results=Research_results(research_results=[], image_url='', table='', references='')
+        research_results=Research_results(research_results=[], image_url='', table={}, references='')
         
         for i in ctx.state.research_plan.search_queries:
             response = tavily_client.search(i.search_query)
@@ -127,7 +128,7 @@ class Research_node(BaseNode[State]):
        
         if ctx.state.research_plan.table:
             result=await table_agent.run(f'research_results:{ctx.state.research_results.research_results},query:{ctx.state.query}')
-            ctx.state.research_results.table=result.data.table
+            ctx.state.research_results.table={'data':[row.data for row in result.data.rows], 'columns':result.data.columns}
         
         
         return PaperGen_node()
