@@ -29,41 +29,38 @@ class State:
     research_results: Dict
     validation : str
     final: Dict
+class paragraph_content(BaseModel):
+    title: str = Field(description='the title of the paragraph')
+    content: str = Field(description='the content of the paragraph')
 
 class paragraph(BaseModel):
     title: str = Field(description='the title of the paragraph')
-    content: Optional[str] = Field(default_factory=None,description='a paragraph in markdown format, no table or image, if needed else return None')
-    
-
-
+    should_include: str = Field(description='a description of what the paragraph should include')  
 class Paper_layout(BaseModel):
     title: str = Field(description='the title of the paper')
-    image_url: Optional[str] = None
     paragraphs: List[paragraph]= Field(description='the list of paragraphs of the paper')
-    table: Optional[dict] = None
-    references: str = None
 
-paper_layout_agent=Agent(llm, result_type=Paper_layout, system_prompt="generate a paper layout based on the query, preliminary_search, search_results, for the paragraphs only include the title, no content, no image, no table, start with introduction and end with conclusion")
-paragraph_gen_agent=Agent(llm, result_type=paragraph, system_prompt="generate a paragraph synthesizing the research_results based on the title")
+paper_layout_agent=Agent(llm, result_type=Paper_layout, system_prompt="generate a paper layout based on the query, preliminary_search, search_results,include a Title for the paper, for the paragraphs only include the title, no content, no image, no table, start with introduction and end with conclusion")
+paragraph_gen_agent=Agent(llm, result_type=paragraph_content, system_prompt="generate a paragraph synthesizing the research_results based on the title and what the paragraph should include")
 class PaperGen_node(BaseNode[State]):
     async def run(self, ctx: GraphRunContext[State])->End:
         prompt=(f'query:{ctx.state.query}, preliminary_search:{ctx.state.preliminary_research},search_results:{ctx.state.research_results.research_results}')
         result=await paper_layout_agent.run(prompt)
-        if ctx.state.research_results.image_url:
-            result.data.image_url=ctx.state.research_results.image_url
-        if ctx.state.research_results.table:
-            result.data.table=ctx.state.research_results.table
-        if ctx.state.research_results.references:
-            result.data.references=ctx.state.research_results.references
-        ctx.state.final=result.data
-        data=[]
-        for i in ctx.state.final.paragraphs:
+        paragraphs=[]
+        for i in result.data.paragraphs:
             time.sleep(2)
-            result=await paragraph_gen_agent.run(f'title:{i.title}, research_results:{ctx.state.research_results.research_results}')
-            data.append(result.data)
-        ctx.state.final.paragraphs=data
+            paragraph_data=await paragraph_gen_agent.run(f'title:{i.title}, should_include:{i.should_include}, research_results:{ctx.state.research_results.research_results}')
+            paragraphs.append(paragraph_data.model_dump())
+
+        paper={'title':result.data.title,
+                'image_url':ctx.state.research_results.image_url if ctx.state.research_results.image_url else None,
+                'paragraphs':paragraphs,
+                'table':ctx.state.research_results.table if ctx.state.research_results.table else None,
+                'references':ctx.state.research_results.references if ctx.state.research_results.references else None}
+
+        ctx.state.final=paper
                 
-        return End(ctx.state.final.model_dump())
+        return End(ctx.state.final)
 
 def google_image_search(query:str):
   """Search for images using Google Custom Search API
@@ -114,10 +111,10 @@ class Research_node(BaseNode[State]):
             data=[]
             for i in response.get('results'):
                 if i.get('score')>0.50:
-                    search_data={'content':i.get('content'),'url':i.get('url')}
                     
-                    data.append(search_data.get('url'))
-                    research_results.research_results.append(search_data.get('content'))
+                    
+                    data.append(i.get('url'))
+                    research_results.research_results.append(i.get('content'))
         research_results.research_results=list(set(research_results.research_results))
         research_results.references=list(set(data))
         research_results.references=', '.join(research_results.references)
