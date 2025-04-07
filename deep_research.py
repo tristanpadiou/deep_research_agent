@@ -12,7 +12,6 @@ from tavily import TavilyClient
 from IPython.display import Image, display
 import requests
 import time
-import pandas as pd
 
 load_dotenv()
 google_api_key=os.getenv('google_api_key')
@@ -41,7 +40,7 @@ class Paper_layout(BaseModel):
     paragraphs: List[paragraph]= Field(description='the list of paragraphs of the paper')
 
 paper_layout_agent=Agent(llm, result_type=Paper_layout, system_prompt="generate a paper layout based on the query, preliminary_search, search_results,include a Title for the paper, for the paragraphs only include the title, no content, no image, no table, start with introduction and end with conclusion")
-paragraph_gen_agent=Agent(llm, result_type=paragraph_content, system_prompt="generate a paragraph synthesizing the research_results based on the title and what the paragraph should include")
+paragraph_gen_agent=Agent(llm, result_type=paragraph_content, system_prompt="generate a paragraph synthesizing the research_results based on the title,what the paragraph should include, and what has already been written to avoid repetition")
 class PaperGen_node(BaseNode[State]):
     async def run(self, ctx: GraphRunContext[State])->End:
         prompt=(f'query:{ctx.state.query}, preliminary_search:{ctx.state.preliminary_research},search_results:{ctx.state.research_results.research_results}')
@@ -49,8 +48,8 @@ class PaperGen_node(BaseNode[State]):
         paragraphs=[]
         for i in result.data.paragraphs:
             time.sleep(2)
-            paragraph_data=await paragraph_gen_agent.run(f'title:{i.title}, should_include:{i.should_include}, research_results:{ctx.state.research_results.research_results}')
-            paragraphs.append(paragraph_data.model_dump())
+            paragraph_data=await paragraph_gen_agent.run(f'title:{i.title}, should_include:{i.should_include}, research_results:{ctx.state.research_results.research_results}, already_written:{paragraphs}')
+            paragraphs.append(paragraph_data.data.model_dump())
 
         paper={'title':result.data.title,
                 'image_url':ctx.state.research_results.image_url if ctx.state.research_results.image_url else None,
