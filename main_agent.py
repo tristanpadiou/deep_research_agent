@@ -138,7 +138,7 @@ async def research_editor_tool(ctx: RunContext[Deps], query:str):
 
 async def Table_agent(ctx: RunContext[Deps], query:str):
     """
-    Use this tool to create a table, edit a table or add a table to the deep search result.
+    Use this tool to create a table, edit a table or add a table to the deep search result. the add table to paper route is used to create and add a table to the deep search result.
     Args:
         query (str): The query to create a table, edit a table or add a table to the deep search result
     Returns:
@@ -165,13 +165,21 @@ async def Table_agent(ctx: RunContext[Deps], query:str):
             rows: List[Table_row] = Field(description='the rows of the table')
             columns: List[str] = Field(description='the columns of the table')
 
-        table_agent=Agent(llm, result_type=Table, system_prompt="edit the table based on the query's instructions, the research results (if any) and the quick search results(if any)")
-        generated_table=await table_agent.run(f'query:{query}, table:{table}, research:{ctx.deps.deep_search_results if ctx.deps.deep_search_results else "None"}, quick_search_results:{ctx.deps.quick_search_results if ctx.deps.quick_search_results else "None"}')
+        table_editor=Agent(llm, result_type=Table, system_prompt="edit the table based on the query's instructions, the research results (if any) and the quick search results(if any)")
+        generated_table=await table_editor.run(f'query:{query}, table:{table}, research:{ctx.deps.deep_search_results if ctx.deps.deep_search_results else "None"}, quick_search_results:{ctx.deps.quick_search_results if ctx.deps.quick_search_results else "None"}')
         ctx.deps.table_data={'data':[row.data for row in generated_table.data.rows], 'columns':generated_table.data.columns}
         return str(ctx.deps.table_data)
     
     if route.data.route=='add_table_to_paper':
-        ctx.deps.deep_search_results['table']=ctx.deps.table_data
+        class Table_row(BaseModel):
+            data: List[str] = Field(description='the data of the row')
+        class Table(BaseModel): 
+            rows: List[Table_row] = Field(description='the rows of the table')
+            columns: List[str] = Field(description='the columns of the table')
+        table_creator=Agent(llm, result_type=Table, system_prompt="create a table based on the query's instructions, the research results (if any) and the quick search results(if any)")
+        generated_table=await table_creator.run(f'query:{query}, research:{ctx.deps.deep_search_results if ctx.deps.deep_search_results else "None"}, quick_search_results:{ctx.deps.quick_search_results if ctx.deps.quick_search_results else "None"}')
+        ctx.deps.deep_search_results['table']={'data':[row.data for row in generated_table.data.rows], 'columns':generated_table.data.columns}
+        ctx.deps.table_data=ctx.deps.deep_search_results['table']
         return str(ctx.deps.deep_search_results)
 
 @dataclass
@@ -182,8 +190,9 @@ class Message_state:
 
 class Main_agent:
     def __init__(self):
-        self.agent=Agent(llm, system_prompt="you are a research assistant, you are given a query, leverage what tool(s) to use but do not use the presentation agent unless the user asks for it,\
-                          always show the output of the tools, except for the presentation agent",
+        self.agent=Agent(llm, system_prompt="you are a research assistant, you are given a query, leverage what tool(s) to use, make suggestions to the user about the tools to use, \
+                          never show the output of the tools, except for the table, notify the user about what next step they can take, inform the user about the table,\
+                         and the table's editable nature either in the chat or in the files section",
                           tools=[deep_research_agent,research_editor_tool,quick_research_agent,Table_agent])
         self.deps=Deps( deep_search_results=[], quick_search_results=[], table_data={})
         self.memory=Message_state(messages=[])
