@@ -204,5 +204,5 @@ class Main_agent:
     
     def reset(self):
         self.memory.messages=[]
-        self.deps=Deps( deep_search_results=[], quick_search_results=[])
+        self.deps=Deps( deep_search_results=[], quick_search_results=[], table_data={})
 
