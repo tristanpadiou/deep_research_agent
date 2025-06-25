@@ -193,7 +193,7 @@ class Main_agent:
         self.agent=Agent(llm, system_prompt="you are a research assistant, you are given a query, leverage what tool(s) to use, make suggestions to the user about the tools to use, \
                           never show the output of the tools, except for the table, notify the user about what next step they can take, inform the user about the table,\
                          and the table's editable nature either in the chat or in the files section",
-                          tools=[deep_research_agent,research_editor_tool,quick_research_agent,Table_agent,tavily_search_tool(tavily_key)])
+                          tools=[deep_research_agent,research_editor_tool,quick_research_agent,Table_agent])
         self.deps=Deps( deep_search_results=[], quick_search_results=[], table_data={})
         self.memory=Message_state(messages=[])
 
