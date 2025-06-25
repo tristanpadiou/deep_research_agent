@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 import os
 from pydantic import Field, BaseModel
 from typing import Dict, List, Any
-from deep_research import Deep_research_engine
+from agent_tools.deep_research import Deep_research_engine
 from pydantic_ai.models.gemini import GeminiModel
 from pydantic_ai.providers.google_gla import GoogleGLAProvider
 from dataclasses import dataclass
@@ -13,7 +13,7 @@ from typing import Optional
 from spire.doc import Document,FileFormat
 from spire.doc.common import *
 import requests
-from table_maker import table_maker_engine
+from agent_tools.table_maker import table_maker_engine
 from PIL import Image
 from io import BytesIO, StringIO
 import tempfile
@@ -129,7 +129,7 @@ async def research_editor_tool(ctx: RunContext[Deps], query:str):
         ctx.deps.deep_search_results['paragraphs'][route.data.paragraph_number]['content']=res.data.edits
     if route.data.route=='image_url':
         content=contents.get('image_url')
-        res=await editor_agent.run(f'query:{query}, content:{content}, quick_search_results:{ctx.deps.quick_search_results if ctx.deps.quick_search_results else "None"}')
+        res=await editor_agent.run(f'query:{query}, content:{content}')
         ctx.deps.deep_search_results['image_url']=res.data.edits
 
     
@@ -193,7 +193,7 @@ class Main_agent:
         self.agent=Agent(llm, system_prompt="you are a research assistant, you are given a query, leverage what tool(s) to use, make suggestions to the user about the tools to use, \
                           never show the output of the tools, except for the table, notify the user about what next step they can take, inform the user about the table,\
                          and the table's editable nature either in the chat or in the files section",
-                          tools=[deep_research_agent,research_editor_tool,quick_research_agent,Table_agent])
+                          tools=[deep_research_agent,research_editor_tool,quick_research_agent,Table_agent,tavily_search_tool(tavily_key)])
         self.deps=Deps( deep_search_results=[], quick_search_results=[], table_data={})
         self.memory=Message_state(messages=[])
 
