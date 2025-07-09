@@ -12,7 +12,8 @@ A Streamlit-based research assistant that helps with deep research, quick search
 
 ## Prerequisites
 
-- Python 3.12 or higher (Python 3.13 is not yet supported in Docker)
+- Python 3.13 or higher
+- [uv](https://docs.astral.sh/uv/) package manager
 - Docker (optional, for containerized deployment)
 - API keys for:
   - Google API (for Gemini and Custom Search)
@@ -29,45 +30,58 @@ pse=your_programmable_search_engine_id
 
 ## Local Installation
 
-1. Clone the repository:
+1. Install uv if you haven't already:
+```bash
+# On macOS and Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# On Windows
+powershell -c "irm https://astral.sh/uv/install.sh | iex"
+
+# Or with pip
+pip install uv
+```
+
+2. Clone the repository:
 ```bash
 git clone <repository-url>
 cd deep_research_agent
 ```
 
-2. Create and activate a virtual environment:
+3. Install dependencies and create virtual environment:
 ```bash
-python -m venv .venv
-# On Windows
-.venv\Scripts\activate
-# On Unix or MacOS
-source .venv/bin/activate
+uv sync
 ```
-
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+This will automatically:
+- Create a `.venv` directory with the virtual environment
+- Install all dependencies from `pyproject.toml`
+- Generate a `uv.lock` file for reproducible builds
 
 4. Run the application:
 ```bash
-streamlit run streamlit_app.py
+# Using uv run (recommended)
+uv run streamlit run app.py
+
+# Or activate environment and run directly
+source .venv/bin/activate  # Unix/macOS
+.venv\Scripts\activate     # Windows
+streamlit run app.py
 ```
 
 The application will be available at `http://localhost:8501`
 
 ## Docker Deployment
 
-The Docker setup uses the official Python 3.12 slim image, which comes with Python pre-installed. This means you don't need to install Python separately when using Docker.
+The Docker setup uses uv for fast and reliable dependency management.
 
 1. Build the Docker image:
 ```bash
 docker build -t research-assistant .
 ```
 This will:
-- Pull the Python 3.12 slim base image
+- Use the official uv Docker image with Python 3.13
 - Set up the working directory
-- Install all required dependencies
+- Install all dependencies using uv
 - Copy your application code
 - Configure the container to run the Streamlit app
 
@@ -77,6 +91,38 @@ docker run -p 8501:8501 --env-file .env research-assistant
 ```
 
 The application will be available at `http://localhost:8501`
+
+## Development
+
+### Adding Dependencies
+```bash
+# Add a new dependency
+uv add package-name
+
+# Add a development dependency
+uv add --dev package-name
+```
+
+### Updating Dependencies
+```bash
+# Update all dependencies
+uv sync --upgrade
+
+# Update a specific dependency
+uv add package-name@latest
+```
+
+### Running Tests
+```bash
+uv run python -m pytest
+```
+
+### Code Formatting
+```bash
+uv run black .
+uv run flake8 .
+uv run mypy .
+```
 
 ## Usage Guide
 
@@ -115,10 +161,22 @@ The application will be available at `http://localhost:8501`
    - Check that port 8501 is not in use
    - Verify the `.env` file is properly mounted
 
-3. **Python Environment Issues**
-   - Ensure you're using Python 3.11 or higher
-   - Try recreating the virtual environment
-   - Check for conflicting package versions
+3. **uv Environment Issues**
+   - Try recreating the virtual environment: `rm -rf .venv && uv sync`
+   - Ensure you have the latest version of uv: `uv self update`
+   - Check for conflicting package versions in `uv.lock`
+
+4. **Python Version Issues**
+   - Ensure you're using Python 3.13 or higher
+   - uv will automatically use the correct Python version specified in `pyproject.toml`
+
+## Why uv?
+
+This project uses [uv](https://docs.astral.sh/uv/) as the package manager for several benefits:
+- **Fast**: Much faster than pip for dependency resolution and installation
+- **Reproducible**: Lock files ensure consistent environments across all machines
+- **Simple**: Single tool for virtual environments and package management
+- **Reliable**: Better dependency resolution and conflict handling
 
 ## Contributing
 
@@ -126,4 +184,4 @@ Feel free to submit issues and enhancement requests!
 
 ## License
 
-[Your License Here]
+MIT License
