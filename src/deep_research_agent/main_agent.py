@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 import os
 from pydantic import Field, BaseModel
 from typing import Dict, List, Any
-from agent_tools.deep_research import Deep_research_engine
+from src.agent_tools.deep_research import Deep_research_engine
 from pydantic_ai.models.gemini import GeminiModel
 from pydantic_ai.providers.google_gla import GoogleGLAProvider
 from dataclasses import dataclass
@@ -13,7 +13,7 @@ from typing import Optional
 from spire.doc import Document,FileFormat
 from spire.doc.common import *
 import requests
-from agent_tools.table_maker import table_maker_engine
+from src.agent_tools.table_maker import table_maker_engine
 from PIL import Image
 from io import BytesIO, StringIO
 import tempfile

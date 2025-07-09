@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from main_agent import Main_agent
+from src.deep_research_agent.main_agent import Main_agent
 import asyncio
 import tempfile
 import os
